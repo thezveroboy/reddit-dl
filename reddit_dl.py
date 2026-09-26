@@ -108,17 +108,24 @@ def parse_since(since_str, days):
 
 
 def clean_url(u):
-    """Убрать amp-обёртки и query, вернуть чистый URL файла.
+    """Убрать amp-обёртки, вернуть URL файла.
 
     Бонус: preview.redd.it (превьюшки, часто 403 при скачивании) меняем на
     i.redd.it — тот же файл в полном размере, отдаётся без блокировок.
+    Исключение: external-preview.redd.it — у него подпись доступа лежит
+    в query (?s=...), её срезать НЕЛЬЗЯ, иначе будет 403.
     """
-    u = html.unescape(u or "").replace("&amp;", "&").strip()
+    u = html.unescape(html.unescape(u or "")).replace("&amp;", "&").strip().rstrip('";')
     if u.startswith("//"):
         u = "https:" + u
-    u = u.split("?")[0].split("#")[0]
-    if urlparse(u).netloc == "preview.redd.it":
+    host = urlparse(u).netloc
+    if host == "preview.redd.it":
         u = u.replace("://preview.redd.it/", "://i.redd.it/", 1)
+        u = u.split("?")[0].split("#")[0]
+    elif host != "external-preview.redd.it":
+        u = u.split("?")[0].split("#")[0]
+    else:
+        u = u.split("#")[0]
     return u
 
 
@@ -146,7 +153,8 @@ def ext_of(url, content_type=""):
 
 def is_direct_file(url):
     low = clean_url(url).lower()
-    if low.endswith(ALL_EXTS):
+    # расширение смотрим по пути (без query: у external-preview там подпись)
+    if unquote(urlparse(low).path or "").endswith(ALL_EXTS):
         return True
     host = urlparse(low).netloc
     return host in DIRECT_HOSTS
@@ -188,15 +196,16 @@ def media_urls(post):
             return sub
 
     url = (post.get("url_overridden_by_dest") or post.get("url") or "").strip()
-    if url.lower().endswith(".gifv"):
+    cu = clean_url(url)
+    if cu.lower().endswith(".gifv"):
         # imgur gifv = тот же id как .mp4 (проверяем ДО is_direct_file,
         # иначе DIRECT_HOSTS проглотит .gifv как есть)
-        out.append((clean_url(url)[:-5] + ".mp4", "video"))
+        out.append((cu[:-5] + ".mp4", "video"))
         return out
     if url and not (url.startswith("/r/") or ("/comments/" in url and "reddit.com" in url)):
         if is_direct_file(url):
-            kind = "video" if clean_url(url).lower().endswith(VID_EXTS) else "image"
-            out.append((clean_url(url), kind))
+            kind = "video" if unquote(urlparse(cu.lower()).path or "").endswith(VID_EXTS) else "image"
+            out.append((cu, kind))
             return out
 
     # 4. Последний шанс: превью Reddit (single-image посты с внешних хостов)
@@ -210,6 +219,19 @@ def media_urls(post):
                 return out
     except (AttributeError, IndexError, TypeError):
         pass
+
+    # 5. Ссылки на файлы прямо в тексте поста (selftext): например пост
+    # "смотрите: https://d.l3n.co/xxx.jpeg" — поле url у него пустое,
+    # а браузер такую ссылку открывает. Забираем все прямые файлы из текста.
+    text = (post.get("selftext") or "")
+    if text:
+        for m in re.findall(r"https?://[^\s)\"'<>]+", text):
+            u = clean_url(html.unescape(m).rstrip(".,;!"))
+            if is_direct_file(u) and all(u != x[0] for x in out):
+                kind = "video" if unquote(urlparse(u.lower()).path or "").endswith(VID_EXTS) else "image"
+                out.append((u, kind))
+        if out:
+            return out
 
     return out
 
@@ -333,29 +355,40 @@ def sanitize(name, n=60):
     return name[:n].rstrip(" .") or "untitled"
 
 
-def download(session, url, dest_path, delay):
-    try:
-        with session.get(url, stream=True, timeout=60) as r:
-            if r.status_code != 200:
-                return f"HTTP {r.status_code}"
-            # уточнить расширение по Content-Type, если URL без него
-            if not dest_path.suffix or dest_path.suffix == ".bin":
-                e = ext_of(url, r.headers.get("Content-Type", ""))
-                if e:
-                    dest_path = dest_path.with_suffix(e)
-            if dest_path.exists() and dest_path.stat().st_size > 0:
-                return "exists"
-            tmp = dest_path.with_suffix(dest_path.suffix + ".part")
-            with open(tmp, "wb") as f:
-                for chunk in r.iter_content(256 * 1024):
-                    if chunk:
-                        f.write(chunk)
-            tmp.rename(dest_path)
-            if delay:
-                time.sleep(delay)
-            return "ok:" + dest_path.name
-    except requests.RequestException as e:
-        return f"сеть: {e}"
+def download(session, url, dest_path, delay, tries=3):
+    """Скачать файл с повторами: медленные хосты (l3n.co и т.п.) часто
+    отваливаются по таймауту с первого раза, со второго-третьего отдают."""
+    if dest_path.exists() and dest_path.stat().st_size > 0:
+        return "exists"
+    last = "?"
+    for attempt in range(tries):
+        try:
+            with session.get(url, stream=True, timeout=120,
+                             headers={"Referer": "https://www.reddit.com/"}) as r:
+                if r.status_code != 200:
+                    last = f"HTTP {r.status_code}"
+                    time.sleep(3)
+                    continue
+                # уточнить расширение по Content-Type, если URL без него
+                if not dest_path.suffix or dest_path.suffix == ".bin":
+                    e = ext_of(url, r.headers.get("Content-Type", ""))
+                    if e:
+                        dest_path = dest_path.with_suffix(e)
+                        if dest_path.exists() and dest_path.stat().st_size > 0:
+                            return "exists"
+                tmp = dest_path.with_suffix(dest_path.suffix + ".part")
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_content(256 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                tmp.rename(dest_path)
+                if delay:
+                    time.sleep(delay)
+                return "ok:" + dest_path.name
+        except requests.RequestException as e:
+            last = f"сеть: {e}"
+            time.sleep(5 + attempt * 5)
+    return last
 
 
 def handle_post(session, p, urls, dest, manifest, delay):
