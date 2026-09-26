@@ -37,6 +37,12 @@ MAIN OPTIONS
   --out FOLDER ........... where to put the community folder (default current).
   --cookies FILE ......... browser cookies file (see below).
   --rss .................. use RSS only (25 newest posts).
+  --direct ............... ignore proxy env vars, go direct.
+  --tor [PROXY] .......... download through a proxy (default Tor on
+                           socks5://127.0.0.1:9150). Needed when the provider
+                           throttles downloads on the direct route: first
+                           kilobytes come, then silence and Read timed out.
+                           Needs PySocks (already in requirements.txt).
 
 
 COOKIES FILE — FOR FULL ACCESS
@@ -109,6 +115,12 @@ NOTES
   --out ПАПКА ........... куда класть папку паблика (по умолч. текущая).
   --cookies ФАЙЛ ........ файл кукис из браузера (см. ниже).
   --rss ................. брать только через RSS (25 самых новых).
+  --direct ............... не использовать прокси, идти напрямую.
+  --tor [ПРОКСИ] ......... качать через прокси (по умолч. Тор на
+                           socks5://127.0.0.1:9150). Нужно, когда провайдер
+                           душит скачивание напрямую: первые килобайты идут,
+                           потом тишина и Read timed out. PySocks уже
+                           в requirements.txt.
 
 
 ФАЙЛ КУКИС — ДЛЯ ПОЛНОГО ДОСТУПА

@@ -439,6 +439,12 @@ def main(argv=None):
                     help="Не использовать прокси из окружения (HTTP_PROXY/HTTPS_PROXY). "
                          "Нужно, если прокси/Tor душит качалки картинок: тот же l3n.co через Tor "
                          "часто висит с Read timed out, а напрямую отдаёт за секунды")
+    ap.add_argument("--tor", nargs="?", const="socks5://127.0.0.1:9150", default=None, metavar="PROXY",
+                    help="Качать файлы через прокси (по умолч. Tor на socks5://127.0.0.1:9150). "
+                         "Нужно, когда НАПРЯМУЮ провайдер душит раздачу: первые килобайты идут, "
+                         "потом тишина и Read timed out, а через Tor всё льётся. "
+                         "Пример: --tor  или  --tor socks5://127.0.0.1:9150. "
+                         "Нужен пакет PySocks: pip install requests[socks]")
     a = ap.parse_args(argv)
 
     sub, url_sort = parse_target(a.target)
@@ -454,6 +460,9 @@ def main(argv=None):
     session.headers.update({"User-Agent": UA})
     if a.direct:
         session.trust_env = False  # мимо прокси
+    if a.tor:
+        # файлы (и список) через указанный прокси: обход шейпинга провайдера
+        session.proxies.update({"http": a.tor, "https": a.tor})
     if a.cookies:
         load_cookies(session, a.cookies)
 
@@ -470,7 +479,8 @@ def main(argv=None):
           + (f" | новее {a.since or str(a.days) + ' дн.'}" if since_ts else "")
           + f" | папка: {dest}"
           + (" | OAuth" if use_oauth else "")
-          + (" | напрямую, без прокси" if a.direct else (f" | прокси: {_proxy}" if _proxy else "")))
+          + (" | напрямую, без прокси" if a.direct else (f" | прокси: {_proxy}" if _proxy else ""))
+          + (f" | файлы через {a.tor}" if a.tor else ""))
     if sort != "new" and since_ts:
         print("Внимание: лента не хронологическая — старые посты пропускаю, но листинг иду до конца (ранней остановки не будет).")
 
