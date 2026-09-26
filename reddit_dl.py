@@ -435,6 +435,10 @@ def main(argv=None):
                     help="Секрет приложения (или env REDDIT_CLIENT_SECRET)")
     ap.add_argument("--cookies", default=None, help="cookies.txt из браузера (Netscape) — открывает NSFW/приват и снимает 403")
     ap.add_argument("--rss", action="store_true", help="Сразу брать через RSS (~25 новых, без пагинации)")
+    ap.add_argument("--direct", action="store_true",
+                    help="Не использовать прокси из окружения (HTTP_PROXY/HTTPS_PROXY). "
+                         "Нужно, если прокси/Tor душит качалки картинок: тот же l3n.co через Tor "
+                         "часто висит с Read timed out, а напрямую отдаёт за секунды")
     a = ap.parse_args(argv)
 
     sub, url_sort = parse_target(a.target)
@@ -448,6 +452,8 @@ def main(argv=None):
 
     session = requests.Session()
     session.headers.update({"User-Agent": UA})
+    if a.direct:
+        session.trust_env = False  # мимо прокси
     if a.cookies:
         load_cookies(session, a.cookies)
 
@@ -459,10 +465,12 @@ def main(argv=None):
     else:
         base = "https://www.reddit.com"
 
+    _proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
     print(f"Паблик: r/{sub} | sort={sort} | limit={'всё' if want_all else limit}"
           + (f" | новее {a.since or str(a.days) + ' дн.'}" if since_ts else "")
           + f" | папка: {dest}"
-          + (" | OAuth" if use_oauth else ""))
+          + (" | OAuth" if use_oauth else "")
+          + (" | напрямую, без прокси" if a.direct else (f" | прокси: {_proxy}" if _proxy else "")))
     if sort != "new" and since_ts:
         print("Внимание: лента не хронологическая — старые посты пропускаю, но листинг иду до конца (ранней остановки не будет).")
 
