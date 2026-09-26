@@ -1,0 +1,13 @@
+# personal stuff, not part of the project
+AGENTS.md
+agents.md
+GOALS.md
+goals.md
+opencode.bat
+run.bat
+run2.bat
+run*.bat
+cookies.txt
+*cookies*.txt
+__pycache__/
+*.pyc
