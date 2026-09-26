@@ -363,7 +363,7 @@ def download(session, url, dest_path, delay, tries=3):
     last = "?"
     for attempt in range(tries):
         try:
-            with session.get(url, stream=True, timeout=120,
+            with session.get(url, stream=True, timeout=(15, 60),
                              headers={"Referer": "https://www.reddit.com/"}) as r:
                 if r.status_code != 200:
                     last = f"HTTP {r.status_code}"
@@ -387,7 +387,7 @@ def download(session, url, dest_path, delay, tries=3):
                 return "ok:" + dest_path.name
         except requests.RequestException as e:
             last = f"сеть: {e}"
-            time.sleep(5 + attempt * 5)
+            time.sleep(3 + attempt * 3)
     return last
 
 
@@ -405,12 +405,14 @@ def handle_post(session, p, urls, dest, manifest, delay):
         fname = f"{pid}_{i}_{title}{e}" if len(urls) > 1 else f"{pid}_{title}{e}"
         if len(fname) > 150:  # длинные заголовки
             fname = f"{pid}_{i}{e}"
+        print(f"  {pid} [{i + 1}/{len(urls)}] {u[:90]} ... ", end="", flush=True)
         res = download(session, u, dest / fname, delay)
         if res.startswith("ok:") or res == "exists":
             saved += 1
+            print("ok")
         else:
             skipped += 1
-            print(f"  skip {pid}: {u} ({res})")
+            print(f"skip ({res})")
     return saved, skipped
 
 
@@ -493,6 +495,7 @@ def main(argv=None):
         after, early_stop, pages = None, False, 0
         while seen < limit:
             try:
+                print(f"Страница {pages + 1}: запрашиваю список постов...", flush=True)
                 data = fetch_json_page(session, base, sub, sort, after, a.time)
             except RedditBlocked as e:
                 if str(e) == "429":
